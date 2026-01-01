@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "VOA - Quran Recitation Validator",
+    "slug": "voa",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "voa",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1a2e"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.voa.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "VOA needs microphone access to record your Quran recitation for validation."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1a1a2e"
+      },
+      "package": "com.voa.app",
+      "permissions": ["RECORD_AUDIO"]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "VOA needs microphone access to record your Quran recitation."
+        }
+      ]
+    ]
+  }
+}

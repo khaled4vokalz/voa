@@ -33,3 +33,6 @@ coverage/
 
 # LLM
 .claude/
+
+# debug
+debug/
