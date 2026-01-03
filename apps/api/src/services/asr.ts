@@ -1,10 +1,8 @@
 import { HfInference } from '@huggingface/inference';
 
-// Model specifically fine-tuned for Quran recitation (5.75% WER)
-const QURAN_WHISPER_MODEL = 'tarteel-ai/whisper-base-ar-quran';
-
-// Fallback to standard Arabic Whisper if needed
-const FALLBACK_MODEL = 'openai/whisper-large-v3';
+// Use Whisper large-v3 with replicate provider for best Arabic support
+// The tarteel-ai model isn't available on inference providers
+const WHISPER_MODEL = 'openai/whisper-large-v3';
 
 let hfClient: HfInference | null = null;
 
@@ -22,51 +20,64 @@ function getClient(): HfInference {
   return hfClient;
 }
 
+// Providers to try in order of preference
+// Note: replicate doesn't support ASR through HF inference library
+const ASR_PROVIDERS = ['hf-inference', 'fal-ai'] as const;
+
 /**
  * Transcribe audio using Hugging Face Inference API
+ * Tries multiple providers until one works
  *
  * @param audioData - Audio file as Buffer or Blob
- * @param useQuranModel - Use Quran-specialized model (default: true)
  * @returns Transcribed Arabic text
  */
-export async function transcribeAudio(
-  audioData: Buffer | Blob,
-  useQuranModel = true
-): Promise<string> {
+export async function transcribeAudio(audioData: Buffer | Blob): Promise<string> {
   const client = getClient();
-  const model = useQuranModel ? QURAN_WHISPER_MODEL : FALLBACK_MODEL;
+  let lastError: Error | null = null;
 
-  try {
-    const result = await client.automaticSpeechRecognition({
-      model,
-      data: audioData,
-    });
+  for (const provider of ASR_PROVIDERS) {
+    try {
+      console.log(`Trying ASR with provider: ${provider}...`);
+      const result = await client.automaticSpeechRecognition({
+        model: WHISPER_MODEL,
+        data: audioData,
+        provider,
+      });
 
-    return result.text;
-  } catch (error) {
-    console.error('ASR error:', error);
-
-    // If Quran model fails, try fallback
-    if (useQuranModel) {
-      console.log('Trying fallback model...');
-      return transcribeAudio(audioData, false);
+      console.log(`ASR succeeded with provider: ${provider}`);
+      return result.text;
+    } catch (error) {
+      console.error(`ASR error with ${provider}:`, (error as Error).message);
+      lastError = error as Error;
     }
-
-    throw new Error('Failed to transcribe audio');
   }
+
+  throw new Error(`Failed to transcribe audio. Last error: ${lastError?.message}`);
 }
 
 /**
  * Transcribe audio from base64 string
+ * @param base64Audio - Base64 encoded audio data
+ * @param mimeType - Audio MIME type (default: audio/m4a for iOS expo-av)
  */
-export async function transcribeBase64Audio(base64Audio: string): Promise<string> {
-  // Remove data URL prefix if present
-  const base64Data = base64Audio.replace(/^data:audio\/\w+;base64,/, '');
+export async function transcribeBase64Audio(
+  base64Audio: string,
+  mimeType = 'audio/m4a'
+): Promise<string> {
+  // Remove data URL prefix if present and extract mime type
+  const dataUrlMatch = base64Audio.match(/^data:(audio\/[\w+-]+);base64,/);
+  if (dataUrlMatch) {
+    mimeType = dataUrlMatch[1];
+    base64Audio = base64Audio.replace(/^data:audio\/[\w+-]+;base64,/, '');
+  }
 
-  // Convert base64 to Buffer
-  const audioBuffer = Buffer.from(base64Data, 'base64');
+  // Convert base64 to Buffer, then to Blob with proper MIME type
+  const audioBuffer = Buffer.from(base64Audio, 'base64');
+  const audioBlob = new Blob([audioBuffer], { type: mimeType });
 
-  return transcribeAudio(audioBuffer);
+  console.log(`Audio blob created: ${audioBlob.size} bytes, type: ${mimeType}`);
+
+  return transcribeAudio(audioBlob);
 }
 
 /**
