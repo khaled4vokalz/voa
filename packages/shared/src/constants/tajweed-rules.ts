@@ -114,4 +114,10 @@ export const TAJWEED_RULE_INFO: Record<
     description: 'Silent lam in al- before sun letters',
     color: '#E74C3C',
   },
+  silent: {
+    name: 'Silent Letter',
+    nameArabic: 'حرف ساكن',
+    description: 'Letter that is not pronounced',
+    color: '#95A5A6',
+  },
 };

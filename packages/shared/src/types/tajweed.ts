@@ -25,7 +25,9 @@ export type TajweedRuleType =
   | 'qalqalah'
   // Other
   | 'hamzat_wasl'
-  | 'lam_shamsiyyah';
+  | 'lam_shamsiyyah'
+  // Silent letters
+  | 'silent';
 
 /**
  * A single tajweed annotation from cpfair/quran-tajweed

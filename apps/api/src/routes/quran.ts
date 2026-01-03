@@ -1,5 +1,11 @@
 import type { FastifyPluginAsync } from 'fastify';
-import type { AyahTajweed } from '@voa/shared/types';
+import {
+  getAyahText,
+  getAyahTajweed,
+  getSurahData,
+  getJuzAmmaData,
+  getSurahAyahCount,
+} from '../services/quran-data.js';
 
 export const quranRoutes: FastifyPluginAsync = async (fastify) => {
   /**
@@ -11,10 +17,15 @@ export const quranRoutes: FastifyPluginAsync = async (fastify) => {
   }>('/surah/:surahId', async (request) => {
     const surahId = parseInt(request.params.surahId, 10);
 
-    // TODO: Load from tajweed.json and Quran text
+    if (surahId < 1 || surahId > 114) {
+      return { error: 'Invalid surah number. Must be between 1 and 114.' };
+    }
+
+    const ayahs = getSurahData(surahId);
     return {
       surah: surahId,
-      ayahs: [],
+      totalAyahs: ayahs.length,
+      ayahs,
     };
   });
 
@@ -28,14 +39,20 @@ export const quranRoutes: FastifyPluginAsync = async (fastify) => {
     const surahId = parseInt(request.params.surahId, 10);
     const ayahId = parseInt(request.params.ayahId, 10);
 
-    // TODO: Load from tajweed.json
-    const ayahTajweed: AyahTajweed = {
+    const text = getAyahText(`${surahId}:${ayahId}`);
+    if (!text) {
+      return { error: 'Ayah not found' };
+    }
+
+    const tajweed = getAyahTajweed(surahId, ayahId);
+
+    return {
       surah: surahId,
       ayah: ayahId,
-      annotations: [],
+      verseKey: `${surahId}:${ayahId}`,
+      text,
+      annotations: tajweed?.annotations ?? [],
     };
-
-    return ayahTajweed;
   });
 
   /**
@@ -47,10 +64,35 @@ export const quranRoutes: FastifyPluginAsync = async (fastify) => {
   }>('/juz/:juzId', async (request) => {
     const juzId = parseInt(request.params.juzId, 10);
 
-    // TODO: Load ayahs for this juz
+    // For now, only Juz 30 (Amma) is supported
+    if (juzId !== 30) {
+      return {
+        error: 'Currently only Juz 30 (Amma) is supported',
+        supportedJuz: [30],
+      };
+    }
+
+    const surahs = getJuzAmmaData();
     return {
       juz: juzId,
-      ayahs: [],
+      name: "Juz' Amma",
+      surahs,
+    };
+  });
+
+  /**
+   * GET /api/quran/surah/:surahId/count
+   * Get ayah count for a surah
+   */
+  fastify.get<{
+    Params: { surahId: string };
+  }>('/surah/:surahId/count', async (request) => {
+    const surahId = parseInt(request.params.surahId, 10);
+    const count = getSurahAyahCount(surahId);
+
+    return {
+      surah: surahId,
+      ayahCount: count,
     };
   });
 };
