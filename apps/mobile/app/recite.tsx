@@ -1,20 +1,22 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { getAyah, type AyahData } from '../src/services/api';
+import { getAyah, validateRecitation, type AyahData } from '../src/services/api';
+import { useAudioRecorder } from '../src/hooks/useAudioRecorder';
 
 export default function ReciteScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ surah?: string; ayah?: string }>();
 
-  // Default to Al-Fatiha 1:1
   const surahNum = parseInt(params.surah || '1', 10);
   const ayahNum = parseInt(params.ayah || '1', 10);
 
   const [ayahData, setAyahData] = useState<AyahData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isRecording, setIsRecording] = useState(false);
+  const [validating, setValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const recorder = useAudioRecorder();
 
   useEffect(() => {
     loadAyah();
@@ -34,29 +36,52 @@ export default function ReciteScreen() {
     }
   }
 
-  const handleRecord = async () => {
-    if (isRecording) {
-      // Stop recording
-      setIsRecording(false);
+  async function handleRecordPress() {
+    if (recorder.isRecording) {
+      // Stop recording and validate
+      setValidating(true);
+      const audioBase64 = await recorder.stopRecording();
 
-      // TODO: Get actual audio and send to API
-      // For now, navigate to results with mock data
-      router.push({
-        pathname: '/results',
-        params: {
-          surah: surahNum.toString(),
-          ayah: ayahNum.toString(),
-        },
-      });
+      if (!audioBase64) {
+        Alert.alert('Error', 'Failed to capture audio');
+        setValidating(false);
+        return;
+      }
+
+      try {
+        const result = await validateRecitation(audioBase64, {
+          surah: surahNum,
+          ayah: ayahNum,
+          verseKey: `${surahNum}:${ayahNum}`,
+        });
+
+        // Navigate to results with the validation data
+        router.push({
+          pathname: '/results',
+          params: {
+            surah: surahNum.toString(),
+            ayah: ayahNum.toString(),
+            transcription: result.transcription,
+          },
+        });
+      } catch (err) {
+        console.error('Validation error:', err);
+        Alert.alert('Error', 'Failed to validate recording. Please try again.');
+      } finally {
+        setValidating(false);
+      }
     } else {
       // Start recording
-      setIsRecording(true);
+      const started = await recorder.startRecording();
+      if (!started && recorder.error) {
+        Alert.alert('Error', recorder.error);
+      }
     }
-  };
+  }
 
   if (loading) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, styles.centered]}>
         <ActivityIndicator size="large" color="#4ECDC4" />
         <Text style={styles.loadingText}>Loading ayah...</Text>
       </View>
@@ -65,7 +90,7 @@ export default function ReciteScreen() {
 
   if (error) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, styles.centered]}>
         <Text style={styles.errorText}>{error}</Text>
         <Pressable style={styles.retryButton} onPress={loadAyah}>
           <Text style={styles.retryText}>Retry</Text>
@@ -89,21 +114,42 @@ export default function ReciteScreen() {
 
       {/* Recording Controls */}
       <View style={styles.controls}>
-        <Text style={styles.instruction}>
-          {isRecording ? 'Recording... Tap to stop' : 'Tap to start recording'}
-        </Text>
+        {validating ? (
+          <>
+            <ActivityIndicator size="large" color="#4ECDC4" />
+            <Text style={styles.instruction}>Validating your recitation...</Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.instruction}>
+              {recorder.isPreparing
+                ? 'Preparing...'
+                : recorder.isRecording
+                  ? `Recording ${recorder.formattedDuration}`
+                  : 'Tap to start recording'}
+            </Text>
 
-        <Pressable
-          style={[styles.recordButton, isRecording && styles.recordButtonActive]}
-          onPress={handleRecord}
-        >
-          <View style={[styles.recordInner, isRecording && styles.recordInnerActive]} />
-        </Pressable>
+            <Pressable
+              style={[
+                styles.recordButton,
+                recorder.isRecording && styles.recordButtonActive,
+                recorder.isPreparing && styles.recordButtonDisabled,
+              ]}
+              onPress={handleRecordPress}
+              disabled={recorder.isPreparing || validating}
+            >
+              <View
+                style={[
+                  styles.recordInner,
+                  recorder.isRecording && styles.recordInnerActive,
+                ]}
+              />
+            </Pressable>
 
-        {isRecording && (
-          <View style={styles.waveform}>
-            <Text style={styles.waveformText}>🎙️ Recording...</Text>
-          </View>
+            {recorder.isRecording && (
+              <Text style={styles.recordingHint}>Tap again to stop and validate</Text>
+            )}
+          </>
         )}
       </View>
 
@@ -145,6 +191,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f0f1a',
     padding: 20,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   loadingText: {
     color: '#888',
@@ -191,6 +241,8 @@ const styles = StyleSheet.create({
   controls: {
     alignItems: 'center',
     marginBottom: 24,
+    minHeight: 180,
+    justifyContent: 'center',
   },
   instruction: {
     fontSize: 16,
@@ -210,6 +262,9 @@ const styles = StyleSheet.create({
   recordButtonActive: {
     borderColor: '#FF6B6B',
   },
+  recordButtonDisabled: {
+    opacity: 0.5,
+  },
   recordInner: {
     width: 40,
     height: 40,
@@ -222,15 +277,10 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
   },
-  waveform: {
-    marginTop: 24,
-    padding: 16,
-    backgroundColor: '#1a1a2e',
-    borderRadius: 8,
-  },
-  waveformText: {
+  recordingHint: {
+    marginTop: 16,
+    fontSize: 14,
     color: '#FF6B6B',
-    fontSize: 16,
   },
   navigation: {
     flexDirection: 'row',
