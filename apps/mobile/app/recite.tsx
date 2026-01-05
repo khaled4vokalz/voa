@@ -72,6 +72,14 @@ export default function ReciteScreen() {
             timingScore: result.pronunciation?.timing_score.toString() || '0',
             fluencyScore: result.pronunciation?.fluency_score.toString() || '0',
             pronunciationSummary: result.pronunciation?.summary || '',
+            // Pass segments as JSON for detailed feedback
+            segments: result.pronunciation?.segments
+              ? JSON.stringify(result.pronunciation.segments)
+              : '',
+            // Pass word-by-word feedback
+            words: result.pronunciation?.words
+              ? JSON.stringify(result.pronunciation.words)
+              : '',
           },
         });
       } catch (err) {

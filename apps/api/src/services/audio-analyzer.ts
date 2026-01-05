@@ -18,12 +18,24 @@ export interface SegmentFeedback {
   issues: string[];
 }
 
+export interface WordFeedback {
+  word_index: number;
+  text: string;  // Arabic word text
+  start_time: number;
+  end_time: number;
+  makhraj_score: number;
+  timing_score: number;
+  overall_score: number;
+  issues: string[];
+}
+
 export interface PronunciationAnalysis {
   overall_score: number;
   makhraj_score: number;
   timing_score: number;
   fluency_score: number;
   segments: SegmentFeedback[];
+  words: WordFeedback[];  // Word-by-word feedback
   summary: string;
 }
 

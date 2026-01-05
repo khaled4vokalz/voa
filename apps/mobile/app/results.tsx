@@ -13,6 +13,28 @@ interface ResultParams {
   timingScore?: string;
   fluencyScore?: string;
   pronunciationSummary?: string;
+  segments?: string;
+  words?: string;
+}
+
+interface Segment {
+  start_time: number;
+  end_time: number;
+  makhraj_score: number;
+  timing_score: number;
+  overall_score: number;
+  issues: string[];
+}
+
+interface WordFeedback {
+  word_index: number;
+  text: string;
+  start_time: number;
+  end_time: number;
+  makhraj_score: number;
+  timing_score: number;
+  overall_score: number;
+  issues: string[];
 }
 
 export default function ResultsScreen() {
@@ -33,6 +55,21 @@ export default function ResultsScreen() {
   const timingScore = parseFloat(params.timingScore || '0');
   const fluencyScore = parseFloat(params.fluencyScore || '0');
   const pronunciationSummary = params.pronunciationSummary || '';
+
+  // Parse segments for detailed feedback
+  const segments: Segment[] = params.segments ? JSON.parse(params.segments) : [];
+  const segmentsWithIssues = segments.filter((s) => s.issues.length > 0);
+
+  // Parse word-by-word feedback
+  const words: WordFeedback[] = params.words ? JSON.parse(params.words) : [];
+  const wordsWithIssues = words.filter((w) => w.issues.length > 0);
+
+  // Format time as mm:ss
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   // Combined overall score
   const overallScore = hasPronunciation
@@ -89,7 +126,7 @@ export default function ResultsScreen() {
       </View>
 
       {/* Pronunciation Scores */}
-      {hasPronunciation ? (
+      {hasPronunciation && (
         <View style={styles.detailsCard}>
           <Text style={styles.cardTitle}>Pronunciation Quality</Text>
 
@@ -138,7 +175,126 @@ export default function ResultsScreen() {
             </View>
           )}
         </View>
-      ) : (
+      )}
+
+      {/* Word-by-Word Feedback */}
+      {hasPronunciation && words.length > 0 && (
+        <View style={styles.wordsCard}>
+          <Text style={styles.cardTitle}>Word-by-Word Analysis</Text>
+
+          {/* Visual word display - show issues under each word */}
+          <View style={styles.wordList}>
+            {words.map((word, idx) => {
+              const hasIssues = word.issues.length > 0;
+              const isGood = word.overall_score >= 80;
+
+              return (
+                <View
+                  key={idx}
+                  style={[
+                    styles.wordItem,
+                    {
+                      backgroundColor: isGood ? '#1a3a2e' : hasIssues ? '#3a1a1a' : '#2a2a3e',
+                      borderColor: isGood ? '#4ECDC4' : hasIssues ? '#FF6B6B' : '#444',
+                    },
+                  ]}
+                >
+                  <Text style={styles.wordText}>{word.text}</Text>
+                  {hasIssues ? (
+                    <View style={styles.wordIssuesList}>
+                      {word.issues.map((issue, issueIdx) => (
+                        <Text key={issueIdx} style={styles.wordIssueLabel}>
+                          {issue}
+                        </Text>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={styles.wordGoodLabel}>
+                      {isGood ? '✓ Good' : 'OK'}
+                    </Text>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Summary of issues */}
+          {wordsWithIssues.length > 0 && (
+            <View style={styles.wordsSummary}>
+              <Text style={styles.wordsSummaryText}>
+                {wordsWithIssues.length} of {words.length} words need attention
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Segment-by-Segment Issues */}
+      {segmentsWithIssues.length > 0 && (
+        <View style={styles.issuesCard}>
+          <Text style={styles.cardTitle}>Specific Issues Found</Text>
+          {segmentsWithIssues.map((segment, idx) => (
+            <View key={idx} style={styles.segmentIssue}>
+              <View style={styles.segmentHeader}>
+                <View style={styles.timeBadge}>
+                  <Text style={styles.timeText}>
+                    {formatTime(segment.start_time)} - {formatTime(segment.end_time)}
+                  </Text>
+                </View>
+                <View style={styles.segmentScores}>
+                  <Text
+                    style={[
+                      styles.miniScore,
+                      { color: getScoreColor(segment.makhraj_score) },
+                    ]}
+                  >
+                    M: {Math.round(segment.makhraj_score)}%
+                  </Text>
+                  <Text
+                    style={[
+                      styles.miniScore,
+                      { color: getScoreColor(segment.timing_score) },
+                    ]}
+                  >
+                    T: {Math.round(segment.timing_score)}%
+                  </Text>
+                </View>
+              </View>
+              {segment.issues.map((issue, issueIdx) => (
+                <View key={issueIdx} style={styles.issueItem}>
+                  <Text style={styles.issueDot}>•</Text>
+                  <Text style={styles.issueText}>{issue}</Text>
+                </View>
+              ))}
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* All Segments Timeline (if no major issues) */}
+      {hasPronunciation && segmentsWithIssues.length === 0 && segments.length > 0 && (
+        <View style={styles.timelineCard}>
+          <Text style={styles.cardTitle}>Timeline</Text>
+          <View style={styles.timeline}>
+            {segments.map((segment, idx) => (
+              <View
+                key={idx}
+                style={[
+                  styles.timelineSegment,
+                  { backgroundColor: getScoreColor(segment.overall_score) + '40' },
+                ]}
+              >
+                <Text style={styles.timelineScore}>
+                  {Math.round(segment.overall_score)}%
+                </Text>
+              </View>
+            ))}
+          </View>
+          <Text style={styles.timelineHint}>Each block represents a section of your recitation</Text>
+        </View>
+      )}
+
+      {!hasPronunciation && (
         <View style={styles.infoCard}>
           <Text style={styles.infoTitle}>Pronunciation Analysis</Text>
           <Text style={styles.infoText}>
@@ -339,6 +495,136 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#ccc',
     marginBottom: 6,
+  },
+  wordsCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+  },
+  wordList: {
+    gap: 12,
+  },
+  wordItem: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+  },
+  wordText: {
+    fontSize: 24,
+    color: '#fff',
+    textAlign: 'right',
+    marginBottom: 8,
+  },
+  wordIssuesList: {
+    gap: 4,
+  },
+  wordIssueLabel: {
+    fontSize: 13,
+    color: '#FF6B6B',
+    backgroundColor: '#4a1a1a',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  wordGoodLabel: {
+    fontSize: 13,
+    color: '#4ECDC4',
+    alignSelf: 'flex-start',
+  },
+  wordsSummary: {
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+  },
+  wordsSummaryText: {
+    fontSize: 13,
+    color: '#888',
+    textAlign: 'center',
+  },
+  issuesCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+  },
+  segmentIssue: {
+    backgroundColor: '#2a1a1a',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  segmentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  timeBadge: {
+    backgroundColor: '#3a2a2a',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  timeText: {
+    fontSize: 12,
+    color: '#FF6B6B',
+    fontFamily: 'monospace',
+  },
+  segmentScores: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  miniScore: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  issueItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 6,
+  },
+  issueDot: {
+    color: '#FF6B6B',
+    fontSize: 14,
+    marginRight: 8,
+    marginTop: 1,
+  },
+  issueText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#ddd',
+    lineHeight: 18,
+  },
+  timelineCard: {
+    backgroundColor: '#1a1a2e',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+  },
+  timeline: {
+    flexDirection: 'row',
+    gap: 4,
+    marginBottom: 8,
+  },
+  timelineSegment: {
+    flex: 1,
+    height: 40,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  timelineScore: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  timelineHint: {
+    fontSize: 11,
+    color: '#666',
+    textAlign: 'center',
   },
   actions: {
     flexDirection: 'row',
