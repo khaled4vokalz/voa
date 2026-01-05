@@ -36,3 +36,17 @@ coverage/
 
 # debug
 debug/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Audio
+.audio_cache/
