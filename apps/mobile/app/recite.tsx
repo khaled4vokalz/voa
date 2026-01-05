@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { getAyah, validateRecitation, type AyahData } from '../src/services/api';
+import { getAyah, fullValidateRecitation, type AyahData } from '../src/services/api';
 import { useAudioRecorder } from '../src/hooks/useAudioRecorder';
 
 export default function ReciteScreen() {
@@ -49,19 +49,29 @@ export default function ReciteScreen() {
       }
 
       try {
-        const result = await validateRecitation(audioBase64, {
+        const result = await fullValidateRecitation(audioBase64, {
           surah: surahNum,
           ayah: ayahNum,
           verseKey: `${surahNum}:${ayahNum}`,
         });
 
-        // Navigate to results with the validation data
+        // Navigate to results with the full validation data
         router.push({
           pathname: '/results',
           params: {
             surah: surahNum.toString(),
             ayah: ayahNum.toString(),
-            transcription: result.transcription,
+            transcription: result.transcription.transcription,
+            // Pass scores
+            accuracyScore: result.transcription.scores.accuracy.toString(),
+            tajweedScore: result.transcription.scores.tajweed.toString(),
+            overallScore: result.transcription.scores.overall.toString(),
+            // Pass pronunciation analysis if available
+            hasPronunciation: result.pronunciation ? 'true' : 'false',
+            makhrajScore: result.pronunciation?.makhraj_score.toString() || '0',
+            timingScore: result.pronunciation?.timing_score.toString() || '0',
+            fluencyScore: result.pronunciation?.fluency_score.toString() || '0',
+            pronunciationSummary: result.pronunciation?.summary || '',
           },
         });
       } catch (err) {

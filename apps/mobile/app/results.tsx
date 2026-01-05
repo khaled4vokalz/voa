@@ -1,71 +1,43 @@
-import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { validateText, getAyah, type RecitationResult } from '../src/services/api';
+
+interface ResultParams {
+  surah?: string;
+  ayah?: string;
+  transcription?: string;
+  accuracyScore?: string;
+  tajweedScore?: string;
+  overallScore?: string;
+  hasPronunciation?: string;
+  makhrajScore?: string;
+  timingScore?: string;
+  fluencyScore?: string;
+  pronunciationSummary?: string;
+}
 
 export default function ResultsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ surah?: string; ayah?: string; transcription?: string }>();
+  const params = useLocalSearchParams<ResultParams>();
 
   const surahNum = parseInt(params.surah || '1', 10);
   const ayahNum = parseInt(params.ayah || '1', 10);
 
-  const [result, setResult] = useState<RecitationResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Text-based scores (from ASR transcription comparison)
+  const accuracyScore = parseFloat(params.accuracyScore || '0');
+  const tajweedScore = parseFloat(params.tajweedScore || '0');
+  const textOverallScore = parseFloat(params.overallScore || '0');
 
-  useEffect(() => {
-    validateRecitation();
-  }, []);
+  // Pronunciation scores (from audio comparison)
+  const hasPronunciation = params.hasPronunciation === 'true';
+  const makhrajScore = parseFloat(params.makhrajScore || '0');
+  const timingScore = parseFloat(params.timingScore || '0');
+  const fluencyScore = parseFloat(params.fluencyScore || '0');
+  const pronunciationSummary = params.pronunciationSummary || '';
 
-  async function validateRecitation() {
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Get the reference text first
-      const ayahData = await getAyah(surahNum, ayahNum);
-
-      // Use the transcription from params, or simulate a partial recitation for testing
-      const transcription =
-        params.transcription ||
-        // For testing: use the actual text (should get 100%) or modify it
-        ayahData.text;
-
-      const validationResult = await validateText(transcription, {
-        surah: surahNum,
-        ayah: ayahNum,
-        verseKey: `${surahNum}:${ayahNum}`,
-      });
-
-      setResult(validationResult);
-    } catch (err) {
-      console.error('Validation error:', err);
-      setError('Failed to validate. Is the API running?');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (loading) {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color="#4ECDC4" />
-        <Text style={styles.loadingText}>Validating recitation...</Text>
-      </View>
-    );
-  }
-
-  if (error || !result) {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        <Text style={styles.errorText}>{error || 'No results'}</Text>
-        <Pressable style={styles.retryButton} onPress={() => router.push('/')}>
-          <Text style={styles.retryButtonText}>Go Home</Text>
-        </Pressable>
-      </View>
-    );
-  }
+  // Combined overall score
+  const overallScore = hasPronunciation
+    ? Math.round((textOverallScore + makhrajScore) / 2)
+    : textOverallScore;
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return '#4ECDC4';
@@ -78,27 +50,28 @@ export default function ResultsScreen() {
       {/* Overall Score */}
       <View style={styles.scoreCard}>
         <Text style={styles.scoreLabel}>Overall Score</Text>
-        <Text style={[styles.scoreValue, { color: getScoreColor(result.scores.overall) }]}>
-          {result.scores.overall}%
+        <Text style={[styles.scoreValue, { color: getScoreColor(overallScore) }]}>
+          {Math.round(overallScore)}%
         </Text>
         <Text style={styles.verseInfo}>
-          Surah {result.verse.surah}, Ayah {result.verse.ayah}
+          Surah {surahNum}, Ayah {ayahNum}
         </Text>
       </View>
 
-      {/* Detailed Scores */}
+      {/* Text-Based Scores */}
       <View style={styles.detailsCard}>
+        <Text style={styles.cardTitle}>Text Accuracy</Text>
         <View style={styles.scoreRow}>
-          <Text style={styles.detailLabel}>Accuracy</Text>
+          <Text style={styles.detailLabel}>Words</Text>
           <View style={styles.progressBar}>
             <View
               style={[
                 styles.progressFill,
-                { width: `${result.scores.accuracy}%`, backgroundColor: getScoreColor(result.scores.accuracy) },
+                { width: `${accuracyScore}%`, backgroundColor: getScoreColor(accuracyScore) },
               ]}
             />
           </View>
-          <Text style={styles.detailValue}>{result.scores.accuracy}%</Text>
+          <Text style={styles.detailValue}>{Math.round(accuracyScore)}%</Text>
         </View>
 
         <View style={styles.scoreRow}>
@@ -107,56 +80,102 @@ export default function ResultsScreen() {
             <View
               style={[
                 styles.progressFill,
-                { width: `${result.scores.tajweed}%`, backgroundColor: getScoreColor(result.scores.tajweed) },
+                { width: `${tajweedScore}%`, backgroundColor: getScoreColor(tajweedScore) },
               ]}
             />
           </View>
-          <Text style={styles.detailValue}>{result.scores.tajweed}%</Text>
+          <Text style={styles.detailValue}>{Math.round(tajweedScore)}%</Text>
         </View>
       </View>
+
+      {/* Pronunciation Scores */}
+      {hasPronunciation ? (
+        <View style={styles.detailsCard}>
+          <Text style={styles.cardTitle}>Pronunciation Quality</Text>
+
+          <View style={styles.scoreRow}>
+            <Text style={styles.detailLabel}>Makhraj</Text>
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: `${makhrajScore}%`, backgroundColor: getScoreColor(makhrajScore) },
+                ]}
+              />
+            </View>
+            <Text style={styles.detailValue}>{Math.round(makhrajScore)}%</Text>
+          </View>
+
+          <View style={styles.scoreRow}>
+            <Text style={styles.detailLabel}>Timing</Text>
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: `${timingScore}%`, backgroundColor: getScoreColor(timingScore) },
+                ]}
+              />
+            </View>
+            <Text style={styles.detailValue}>{Math.round(timingScore)}%</Text>
+          </View>
+
+          <View style={styles.scoreRow}>
+            <Text style={styles.detailLabel}>Fluency</Text>
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: `${fluencyScore}%`, backgroundColor: getScoreColor(fluencyScore) },
+                ]}
+              />
+            </View>
+            <Text style={styles.detailValue}>{Math.round(fluencyScore)}%</Text>
+          </View>
+
+          {pronunciationSummary && (
+            <View style={styles.summaryBox}>
+              <Text style={styles.summaryText}>{pronunciationSummary}</Text>
+            </View>
+          )}
+        </View>
+      ) : (
+        <View style={styles.infoCard}>
+          <Text style={styles.infoTitle}>Pronunciation Analysis</Text>
+          <Text style={styles.infoText}>
+            Start the Python audio analyzer service for detailed pronunciation feedback
+            (makhraj, timing, fluency).
+          </Text>
+        </View>
+      )}
 
       {/* Transcription */}
-      <View style={styles.transcriptionCard}>
-        <Text style={styles.sectionTitle}>Transcription</Text>
-        <Text style={styles.transcriptionText}>{result.transcription}</Text>
-      </View>
-
-      {/* Word Results */}
-      {result.words.length > 0 && (
-        <View style={styles.wordsCard}>
-          <Text style={styles.sectionTitle}>Word by Word</Text>
-          <View style={styles.wordsList}>
-            {result.words.map((word, i) => (
-              <View
-                key={i}
-                style={[styles.wordChip, word.isCorrect ? styles.wordCorrect : styles.wordIncorrect]}
-              >
-                <Text style={styles.wordText}>{word.expected}</Text>
-              </View>
-            ))}
-          </View>
+      {params.transcription && (
+        <View style={styles.transcriptionCard}>
+          <Text style={styles.sectionTitle}>What We Heard</Text>
+          <Text style={styles.transcriptionText}>{params.transcription}</Text>
         </View>
       )}
 
-      {/* Violations */}
-      {result.violations.length > 0 && (
-        <View style={styles.violationsCard}>
-          <Text style={styles.sectionTitle}>Areas to Improve</Text>
-          {result.violations.map((v, i) => (
-            <View key={i} style={styles.violationItem}>
-              <View style={[styles.violationDot, v.severity === 'major' ? styles.dotMajor : styles.dotMinor]} />
-              <View style={styles.violationContent}>
-                <Text style={styles.violationRule}>{v.rule.replace(/_/g, ' ')}</Text>
-                <Text style={styles.violationDesc}>{v.expected}</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {result.violations.length === 0 && result.scores.overall >= 80 && (
+      {/* Feedback */}
+      {overallScore >= 80 && (
         <View style={styles.successCard}>
-          <Text style={styles.successText}>🎉 Excellent recitation!</Text>
+          <Text style={styles.successText}>Excellent recitation!</Text>
+        </View>
+      )}
+
+      {overallScore < 60 && (
+        <View style={styles.tipCard}>
+          <Text style={styles.tipTitle}>Tips for Improvement</Text>
+          {makhrajScore < 60 && hasPronunciation && (
+            <Text style={styles.tipText}>• Focus on articulation points (makhraj)</Text>
+          )}
+          {timingScore < 60 && hasPronunciation && (
+            <Text style={styles.tipText}>• Practice madd elongation timing</Text>
+          )}
+          {accuracyScore < 60 && (
+            <Text style={styles.tipText}>• Review the verse text carefully</Text>
+          )}
+          <Text style={styles.tipText}>• Recite slowly and clearly</Text>
         </View>
       )}
 
@@ -187,19 +206,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f0f1a',
     padding: 20,
   },
-  centered: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: '#888',
-    marginTop: 16,
-  },
-  errorText: {
-    color: '#FF6B6B',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
   scoreCard: {
     backgroundColor: '#1a1a2e',
     borderRadius: 16,
@@ -227,13 +233,19 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 20,
   },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4ECDC4',
+    marginBottom: 16,
+  },
   scoreRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   detailLabel: {
-    width: 80,
+    width: 70,
     fontSize: 14,
     color: '#888',
   },
@@ -254,6 +266,34 @@ const styles = StyleSheet.create({
     color: '#fff',
     textAlign: 'right',
   },
+  summaryBox: {
+    backgroundColor: '#2a2a3e',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+  },
+  summaryText: {
+    fontSize: 14,
+    color: '#ccc',
+    lineHeight: 20,
+  },
+  infoCard: {
+    backgroundColor: '#1a2a3e',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+  },
+  infoTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#4ECDC4',
+    marginBottom: 8,
+  },
+  infoText: {
+    fontSize: 13,
+    color: '#888',
+    lineHeight: 18,
+  },
   transcriptionCard: {
     backgroundColor: '#1a1a2e',
     borderRadius: 16,
@@ -272,70 +312,6 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     lineHeight: 32,
   },
-  wordsCard: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-  },
-  wordsList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  wordChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  wordCorrect: {
-    backgroundColor: '#1a3a2e',
-  },
-  wordIncorrect: {
-    backgroundColor: '#3a1a1a',
-  },
-  wordText: {
-    color: '#fff',
-    fontSize: 16,
-  },
-  violationsCard: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-  },
-  violationItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  violationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginTop: 6,
-    marginRight: 12,
-  },
-  dotMajor: {
-    backgroundColor: '#FF6B6B',
-  },
-  dotMinor: {
-    backgroundColor: '#F7DC6F',
-  },
-  violationContent: {
-    flex: 1,
-  },
-  violationRule: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-    textTransform: 'capitalize',
-  },
-  violationDesc: {
-    fontSize: 13,
-    color: '#888',
-    marginTop: 2,
-  },
   successCard: {
     backgroundColor: '#1a3a2e',
     borderRadius: 16,
@@ -346,6 +322,23 @@ const styles = StyleSheet.create({
   successText: {
     fontSize: 18,
     color: '#4ECDC4',
+  },
+  tipCard: {
+    backgroundColor: '#2a1a1a',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+  },
+  tipTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#FF6B6B',
+    marginBottom: 12,
+  },
+  tipText: {
+    fontSize: 13,
+    color: '#ccc',
+    marginBottom: 6,
   },
   actions: {
     flexDirection: 'row',
