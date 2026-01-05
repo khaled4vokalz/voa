@@ -3,10 +3,11 @@ Reference Audio Fetching
 
 Downloads and caches reference Qari audio for comparison.
 Uses EveryAyah.com which provides free high-quality recitations.
+Uses Quran.com API for word-level timestamps.
 """
 
 import asyncio
-import hashlib
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -158,3 +159,179 @@ def clear_cache() -> int:
         file.unlink()
         count += 1
     return count
+
+
+# QuranWBW reciter IDs for word-level timestamps
+# Only these have wbw timestamps: 1, 2, 6, 8, 10, 15
+QURANWBW_RECITERS = {
+    "ar.husary": 8,       # Mahmoud Khalil Al-Husary
+    "ar.alafasy": 10,     # Mishary Rashid Alafasy
+    "ar.abdulbasit": 2,   # Abdul Basit (Murattal)
+    "ar.minshawi": 8,     # Fallback to Husary
+    "ar.sudais": 8,       # Fallback to Husary
+}
+
+# QuranWBW static data endpoint
+QURANWBW_STATIC = "https://static.quranwbw.com/data/v4"
+
+# Cache for timestamps (loaded once)
+_timestamps_cache = None
+
+
+async def fetch_quranwbw_timestamps() -> Optional[dict]:
+    """Fetch and cache the QuranWBW timestamps file."""
+    global _timestamps_cache
+
+    if _timestamps_cache is not None:
+        return _timestamps_cache
+
+    # Check local cache
+    cache_path = CACHE_DIR / "quranwbw_timestamps.json"
+    if cache_path.exists():
+        async with aiofiles.open(cache_path, "r") as f:
+            content = await f.read()
+            _timestamps_cache = json.loads(content)
+            return _timestamps_cache
+
+    # Fetch from QuranWBW
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(f"{QURANWBW_STATIC}/timestamps/timestamps.json")
+            response.raise_for_status()
+            _timestamps_cache = response.json()
+
+            # Cache locally
+            async with aiofiles.open(cache_path, "w") as f:
+                await f.write(json.dumps(_timestamps_cache))
+
+            return _timestamps_cache
+    except Exception as e:
+        print(f"Failed to fetch QuranWBW timestamps: {e}")
+        return None
+
+
+async def get_word_timings(
+    surah: int,
+    ayah: int,
+    qari: str = "ar.husary"
+) -> Optional[list[dict]]:
+    """
+    Get word-level timestamps from QuranWBW.
+
+    Returns list of word timing data:
+    [
+        {"word_index": 0, "text": "بِسْمِ", "start_ms": 0, "end_ms": 500},
+        {"word_index": 1, "text": "اللَّهِ", "start_ms": 500, "end_ms": 1000},
+        ...
+    ]
+    """
+    reciter_id = QURANWBW_RECITERS.get(qari, 8)  # Default to Husary (ID 8)
+
+    # Check cache first
+    cache_path = CACHE_DIR / f"wordtiming_{surah}_{ayah}_{reciter_id}.json"
+    if cache_path.exists():
+        async with aiofiles.open(cache_path, "r") as f:
+            content = await f.read()
+            return json.loads(content)
+
+    try:
+        # Fetch timestamps data
+        timestamps_data = await fetch_quranwbw_timestamps()
+        if not timestamps_data:
+            return None
+
+        # Get word text from Quran.com API
+        words_url = f"https://api.quran.com/api/v4/verses/by_key/{surah}:{ayah}?words=true&word_fields=text_uthmani"
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            words_response = await client.get(words_url)
+            words_response.raise_for_status()
+            words_data = words_response.json()
+
+        words = words_data.get("verse", {}).get("words", [])
+        print(f"  Fetched {len(words)} words from Quran.com API")
+
+        # Get timestamps for this verse from QuranWBW
+        verse_timestamps = (
+            timestamps_data.get("data", {})
+            .get(str(surah), {})
+            .get(str(ayah), {})
+            .get(str(reciter_id), "")
+        )
+
+        if not verse_timestamps:
+            print(f"  No timestamps found for {surah}:{ayah} reciter {reciter_id}")
+            # Try fallback to Husary
+            if reciter_id != 8:
+                verse_timestamps = (
+                    timestamps_data.get("data", {})
+                    .get(str(surah), {})
+                    .get(str(ayah), {})
+                    .get("8", "")
+                )
+
+        # Parse pipe-separated start times (in seconds)
+        start_times = []
+        if verse_timestamps:
+            start_times = [float(t) if t and t != "0" else 0.0 for t in verse_timestamps.split("|")]
+        print(f"  Parsed {len(start_times)} word timestamps: {start_times[:5]}...")
+
+        # Combine words with timing
+        result = []
+        word_idx = 0
+        for i, word in enumerate(words):
+            # Skip end markers (verse number at end)
+            if word.get("char_type_name") == "end":
+                continue
+
+            word_text = word.get("text_uthmani", word.get("text", ""))
+
+            # Get start time for this word
+            start_sec = start_times[word_idx] if word_idx < len(start_times) else 0
+            # End time is start of next word (or estimate)
+            end_sec = start_times[word_idx + 1] if word_idx + 1 < len(start_times) else start_sec + 0.5
+
+            # Convert to milliseconds
+            start_ms = int(start_sec * 1000)
+            end_ms = int(end_sec * 1000)
+
+            print(f"  Word {word_idx}: '{word_text}' {start_ms}ms - {end_ms}ms")
+
+            result.append({
+                "word_index": word_idx,
+                "text": word_text,
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+            })
+            word_idx += 1
+
+        # Cache the result
+        async with aiofiles.open(cache_path, "w") as f:
+            await f.write(json.dumps(result, ensure_ascii=False))
+
+        return result
+
+    except Exception as e:
+        print(f"Failed to fetch word timings: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+async def get_reference_with_timings(
+    surah: int,
+    ayah: int,
+    qari: str = "ar.husary"
+) -> tuple[Optional[bytes], Optional[list[dict]]]:
+    """
+    Get both reference audio and word-level timestamps.
+
+    Returns (audio_bytes, word_timings)
+    """
+    # Fetch both in parallel
+    audio_task = get_reference_audio(surah, ayah, qari)
+    timing_task = get_word_timings(surah, ayah, qari)
+
+    audio, timings = await asyncio.gather(audio_task, timing_task)
+
+    return audio, timings
